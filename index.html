@@ -1,4 +1,3 @@
-const APP_URL = "https://script.google.com/macros/s/TON_URL_ICI/exec";
 <!DOCTYPE html>
 <html>
 <head>
@@ -7,36 +6,82 @@ const APP_URL = "https://script.google.com/macros/s/TON_URL_ICI/exec";
 </head>
 
 <body>
-<h1>Connexion Arduino Mega → Google Sheets</h1>
+  <h1>Connexion Arduino Mega → Google Sheets</h1>
 
-<button id="connect">Connecter l’Arduino</button>
-<pre id="output"></pre>
+  <button id="connect">Connecter l'Arduino</button>
+  <pre id="output"></pre>
 
-<script>
-let port;
-const output = document.getElementById("output");
+  <script>
+    // 🔗 Remplace TON_URL_ICI par ton URL de déploiement Apps Script (type .../exec)
+    const APP_URL = "https://script.google.com/macros/s/TON_URL_ICI/exec";
 
-document.getElementById("connect").addEventListener("click", async () => {
-  try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 9600 });
+    let port;
+    const output = document.getElementById("output");
+    let buffer = "";
 
-    const reader = port.readable.getReader();
+    document.getElementById("connect").addEventListener("click", async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
 
-    output.textContent += "Connexion réussie.\n\n";
+        const reader = port.readable.getReader();
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+        output.textContent += "Connexion réussie.\n\n";
 
-      const text = new TextDecoder().decode(value);
-      output.textContent += text;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const text = new TextDecoder().decode(value);
+
+          // On accumule le texte et on traite ligne par ligne
+          buffer += text;
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // garde la dernière ligne incomplète
+
+          for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
+
+            // Affichage brut à l'écran
+            output.textContent += line + "\n";
+
+            // Envoi vers Google Sheets
+            handleLine(line);
+          }
+        }
+      } catch (err) {
+        output.textContent += "Erreur : " + err + "\n";
+      }
+    });
+
+    function handleLine(line) {
+      // On saute la ligne d'en-tête
+      if (line.startsWith("time_ms")) return;
+
+      const parts = line.split(",");
+      if (parts.length < 4) return;
+
+      const timeMs   = Number(parts[0]);
+      const timeSec  = Number(parts[1]);
+      const rawValue = Number(parts[2]);
+      const angleDeg = Number(parts[3]);
+
+      // Envoi au script Google Apps Script
+      fetch(APP_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          timeMs,
+          timeSec,
+          rawValue,
+          angleDeg
+        })
+      });
     }
-  } catch (err) {
-    output.textContent += "Erreur : " + err + "\n";
-  }
-});
-</script>
-
+  </script>
 </body>
 </html>
