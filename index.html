@@ -1,70 +1,101 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8" />
-<title>Arduino → Google Sheets</title>
+  <meta charset="UTF-8" />
+  <title>Connexion Arduino Mega → Google Sheets</title>
 </head>
 
 <body>
-<h1>Arduino Mega → Google Sheets</h1>
-<button id="connect">Connecter l’Arduino</button>
-<pre id="log"></pre>
+  <h1>Connexion Arduino Mega → Google Sheets</h1>
+  <button id="connect">Connecter l'Arduino</button>
+  <button id="clear">Vider les données</button>
+  <pre id="log"></pre>
 
-<script>
-let port;
-let reader;
-const logEl = document.getElementById("log");
+  <script>
+    let port;
+    let reader;
+    let buffer = "";
 
-// 👉 Mets ICI ton URL Apps Script
-const URL_SHEETS = "TON_URL_EXEC_ICI";
+    const logEl = document.getElementById("log");
 
-document.getElementById("connect").addEventListener("click", async () => {
-  try {
-    if (!("serial" in navigator)) {
-      logEl.textContent += "Navigateur incompatible avec Web Serial.\n";
-      return;
-    }
+    // 👉 COLLE ICI ton URL Apps Script /exec
+    const URL_SHEETS = "https://script.google.com/macros/s/TON_ID_ICI/exec";
 
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
-    logEl.textContent += "Port ouvert.\n";
+    // --- Connexion à l'Arduino ---
+    document.getElementById("connect").addEventListener("click", async () => {
+      try {
+        if (!("serial" in navigator)) {
+          logEl.textContent += "Web Serial n'est pas supporté dans ce navigateur.\n";
+          return;
+        }
 
-    const decoder = new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable);
-    reader = decoder.readable.getReader();
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        logEl.textContent += "Connexion réussie.\n";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value) continue;
+        const decoder = new TextDecoderStream();
+        port.readable.pipeTo(decoder.writable);
+        reader = decoder.readable.getReader();
 
-      logEl.textContent += value;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!value) continue;
 
-      const lines = value.split("\n");
-      for (let line of lines) {
-        line = line.trim();
-        if (!line || line.startsWith("time_ms")) continue;
+          buffer += value;
 
-        const parts = line.split(",");
-        if (parts.length < 4) continue;
+          let lines = buffer.split("\n");
+          buffer = lines.pop(); // garde la dernière ligne incomplète
 
-        const timeMs = Number(parts[0]);
-        const timeSec = Number(parts[1]);
-        const rawValue = Number(parts[2]);
-        const angleDeg = Number(parts[3]);
-
-        // 👉 Envoi vers Google Sheets
-        fetch(URL_SHEETS + "?timeMs=" + timeMs +
-              "&timeSec=" + timeSec +
-              "&rawValue=" + rawValue +
-              "&angleDeg=" + angleDeg);
+          for (let line of lines) {
+            traiterLigne(line.trim());
+          }
+        }
+      } catch (err) {
+        logEl.textContent += "\nErreur de lecture : " + err + "\n";
       }
-    }
-  } catch (err) {
-    logEl.textContent += "\nErreur : " + err + "\n";
-  }
-});
-</script>
+    });
 
+    // --- Bouton pour vider les données ---
+    document.getElementById("clear").addEventListener("click", () => {
+      if (!confirm("Effacer toutes les données (sauf l'en-tête) ?")) return;
+
+      fetch(URL_SHEETS + "?clear=1", { mode: "no-cors" })
+        .then(() => {
+          logEl.textContent += "\nRequête d'effacement envoyée.\n";
+        })
+        .catch(err => {
+          logEl.textContent += "\nErreur d'effacement : " + err + "\n";
+        });
+    });
+
+    // --- Traitement d'une ligne CSV reçue ---
+    function traiterLigne(line) {
+      if (!line || line.startsWith("time_ms")) return;
+
+      const parts = line.split(",");
+      if (parts.length < 4) return;
+
+      const timeMs   = Number(parts[0]);
+      const timeSec  = Number(parts[1]);
+      const rawValue = Number(parts[2]);
+      const angleDeg = Number(parts[3]);
+
+      // Affiche dans la console de la page
+      logEl.textContent += line + "\n";
+
+      // Envoie vers Google Sheets
+      const url =
+        URL_SHEETS +
+        "?timeMs=" + encodeURIComponent(timeMs) +
+        "&timeSec=" + encodeURIComponent(timeSec) +
+        "&rawValue=" + encodeURIComponent(rawValue) +
+        "&angleDeg=" + encodeURIComponent(angleDeg);
+
+      fetch(url, { mode: "no-cors" }).catch(err => {
+        logEl.textContent += "\nErreur d'envoi Sheets : " + err + "\n";
+      });
+    }
+  </script>
 </body>
 </html>
