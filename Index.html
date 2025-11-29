@@ -1,0 +1,26 @@
+function getSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Data");
+  if (!sheet) {
+    sheet = ss.insertSheet("Data");
+  }
+  return sheet;
+}
+
+// Appelé depuis la page web pour ajouter une ligne
+function appendRowFromBrowser(timeMs, timeSec, rawValue, angleDeg) {
+  const sheet = getSheet();
+  sheet.appendRow([
+    new Date(),         // horodatage serveur
+    Number(timeMs),
+    Number(timeSec),
+    Number(rawValue),
+    Number(angleDeg)
+  ]);
+}
+
+// Sert la page web avec le bouton "Connecter"
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Acquisition Arduino → Sheets');
+}
