@@ -1,87 +1,70 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <title>Connexion Arduino Mega → Google Sheets</title>
+<meta charset="UTF-8" />
+<title>Arduino → Google Sheets</title>
 </head>
 
 <body>
-  <h1>Connexion Arduino Mega → Google Sheets</h1>
+<h1>Arduino Mega → Google Sheets</h1>
+<button id="connect">Connecter l’Arduino</button>
+<pre id="log"></pre>
 
-  <button id="connect">Connecter l'Arduino</button>
-  <pre id="output"></pre>
+<script>
+let port;
+let reader;
+const logEl = document.getElementById("log");
 
-  <script>
-    // 🔗 Remplace TON_URL_ICI par ton URL de déploiement Apps Script (type .../exec)
-    const APP_URL = "https://script.google.com/macros/s/AKfycby6CetmEudEm3-z8abTjABlFHQoSGAYXVu65FPR7exA5OWon7OSzzql8GeLHuUytKc/exec";
+// 👉 Mets ICI ton URL Apps Script
+const URL_SHEETS = "TON_URL_EXEC_ICI";
 
-    let port;
-    const output = document.getElementById("output");
-    let buffer = "";
-
-    document.getElementById("connect").addEventListener("click", async () => {
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-
-        const reader = port.readable.getReader();
-
-        output.textContent += "Connexion réussie.\n\n";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          const text = new TextDecoder().decode(value);
-
-          // On accumule le texte et on traite ligne par ligne
-          buffer += text;
-          const lines = buffer.split('\n');
-          buffer = lines.pop(); // garde la dernière ligne incomplète
-
-          for (let line of lines) {
-            line = line.trim();
-            if (!line) continue;
-
-            // Affichage brut à l'écran
-            output.textContent += line + "\n";
-
-            // Envoi vers Google Sheets
-            handleLine(line);
-          }
-        }
-      } catch (err) {
-        output.textContent += "Erreur : " + err + "\n";
-      }
-    });
-
-    function handleLine(line) {
-      // On saute la ligne d'en-tête
-      if (line.startsWith("time_ms")) return;
-
-      const parts = line.split(",");
-      if (parts.length < 4) return;
-
-      const timeMs   = Number(parts[0]);
-      const timeSec  = Number(parts[1]);
-      const rawValue = Number(parts[2]);
-      const angleDeg = Number(parts[3]);
-
-      // Envoi au script Google Apps Script
-      fetch(APP_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          timeMs,
-          timeSec,
-          rawValue,
-          angleDeg
-        })
-      });
+document.getElementById("connect").addEventListener("click", async () => {
+  try {
+    if (!("serial" in navigator)) {
+      logEl.textContent += "Navigateur incompatible avec Web Serial.\n";
+      return;
     }
-  </script>
+
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    logEl.textContent += "Port ouvert.\n";
+
+    const decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable);
+    reader = decoder.readable.getReader();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      logEl.textContent += value;
+
+      const lines = value.split("\n");
+      for (let line of lines) {
+        line = line.trim();
+        if (!line || line.startsWith("time_ms")) continue;
+
+        const parts = line.split(",");
+        if (parts.length < 4) continue;
+
+        const timeMs = Number(parts[0]);
+        const timeSec = Number(parts[1]);
+        const rawValue = Number(parts[2]);
+        const angleDeg = Number(parts[3]);
+
+        // 👉 Envoi vers Google Sheets
+        fetch(URL_SHEETS + "?timeMs=" + timeMs +
+              "&timeSec=" + timeSec +
+              "&rawValue=" + rawValue +
+              "&angleDeg=" + angleDeg);
+      }
+    }
+  } catch (err) {
+    logEl.textContent += "\nErreur : " + err + "\n";
+  }
+});
+</script>
+
 </body>
 </html>
