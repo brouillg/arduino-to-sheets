@@ -1,87 +1,75 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Arduino → Google Sheets</title>
-</head>
-<body>
-  <h2>Connexion Arduino Mega → Google Sheets</h2>
-  <button id="connectBtn">Connecter l'Arduino</button>
-  <p id="status">Statut : En attente...</p>
-  <pre id="log" style="max-height:300px; overflow:auto; border:1px solid #ccc;"></pre>
+<script>
+let port = null;
+let reader = null;
 
-  <script>
-    const statusEl = document.getElementById('status');
-    const logEl = document.getElementById('log');
-    const connectBtn = document.getElementById('connectBtn');
+const logEl = document.getElementById('log');
+const connectBtn = document.getElementById('connectBtn');
 
-    let port;
-    let reader;
-    let textDecoder;
-    let inputDone;
-    let buffer = '';
-
-    connectBtn.addEventListener('click', async () => {
-      try {
-        // Demande à l'utilisateur de choisir un port série
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-        statusEl.textContent = 'Statut : connecté. Lecture en cours...';
-
-        textDecoder = new TextDecoderStream();
-        inputDone = port.readable.pipeTo(textDecoder.writable);
-        const inputStream = textDecoder.readable;
-        reader = inputStream.getReader();
-
-        readLoop();
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = 'Erreur : ' + err;
-      }
-    });
-
-    async function readLoop() {
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (value) {
-            buffer += value;
-            let lines = buffer.split('\n');
-            buffer = lines.pop(); // on garde la ligne incomplète
-
-            for (let line of lines) {
-              line = line.trim();
-              if (!line) continue;
-
-              // On logge pour debug
-              logEl.textContent += line + '\n';
-
-              // On saute la ligne d'en-tête
-              if (line.startsWith('time_ms')) continue;
-
-              const parts = line.split(',');
-              if (parts.length < 4) continue;
-
-              const timeMs   = parseFloat(parts[0]);
-              const timeSec  = parseFloat(parts[1]);
-              const rawValue = parseFloat(parts[2]);
-              const angleDeg = parseFloat(parts[3]);
-
-              // Appel du script serveur pour écrire dans la feuille
-              google.script.run.appendRowFromBrowser(timeMs, timeSec, rawValue, angleDeg);
-            }
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = 'Erreur de lecture : ' + err;
-      } finally {
-        if (reader) {
-          reader.releaseLock();
-        }
-      }
+connectBtn.addEventListener('click', async () => {
+  try {
+    if (port) {
+      logEl.textContent += "\nDéjà connecté.\n";
+      return;
     }
-  </script>
-</body>
-</html>
+
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+
+    logEl.textContent += "Port ouvert.\n";
+
+    const decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable);
+    reader = decoder.readable.getReader();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      logEl.textContent += value;
+      sendToSheets(value);
+    }
+
+  } catch (err) {
+    logEl.textContent += "\nErreur : " + err + "\n";
+  }
+});
+
+// Déconnexion propre
+async function disconnect() {
+  if (reader) {
+    await reader.cancel();
+    reader = null;
+  }
+  if (port) {
+    await port.close();
+    port = null;
+  }
+  logEl.textContent += "\nPort fermé.\n";
+}
+
+// bouton déconnexion
+const btn = document.createElement("button");
+btn.innerText = "Déconnecter";
+btn.onclick = disconnect;
+document.body.insertBefore(btn, logEl);
+
+// Envoi Google
+function sendToSheets(line) {
+  line = line.trim();
+  const parts = line.split(',');
+
+  if (parts.length < 4) return;
+
+  fetch("TON_URL_EXEC_ICI", {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      timeMs: parts[0],
+      timeSec: parts[1],
+      rawValue: parts[2],
+      angleDeg: parts[3]
+    })
+  });
+}
+</script>
