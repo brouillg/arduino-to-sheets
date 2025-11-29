@@ -1,75 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Connexion Arduino Mega → Google Sheets</title>
+</head>
+
+<body>
+<h1>Connexion Arduino Mega → Google Sheets</h1>
+
+<button id="connect">Connecter l’Arduino</button>
+<pre id="output"></pre>
+
 <script>
-let port = null;
-let reader = null;
+let port;
+const output = document.getElementById("output");
 
-const logEl = document.getElementById('log');
-const connectBtn = document.getElementById('connectBtn');
-
-connectBtn.addEventListener('click', async () => {
+document.getElementById("connect").addEventListener("click", async () => {
   try {
-    if (port) {
-      logEl.textContent += "\nDéjà connecté.\n";
-      return;
-    }
-
     port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
+    await port.open({ baudRate: 9600 });
 
-    logEl.textContent += "Port ouvert.\n";
+    const reader = port.readable.getReader();
 
-    const decoder = new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable);
-    reader = decoder.readable.getReader();
+    output.textContent += "Connexion réussie.\n\n";
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      if (!value) continue;
-      logEl.textContent += value;
-      sendToSheets(value);
-    }
 
+      const text = new TextDecoder().decode(value);
+      output.textContent += text;
+    }
   } catch (err) {
-    logEl.textContent += "\nErreur : " + err + "\n";
+    output.textContent += "Erreur : " + err + "\n";
   }
 });
-
-// Déconnexion propre
-async function disconnect() {
-  if (reader) {
-    await reader.cancel();
-    reader = null;
-  }
-  if (port) {
-    await port.close();
-    port = null;
-  }
-  logEl.textContent += "\nPort fermé.\n";
-}
-
-// bouton déconnexion
-const btn = document.createElement("button");
-btn.innerText = "Déconnecter";
-btn.onclick = disconnect;
-document.body.insertBefore(btn, logEl);
-
-// Envoi Google
-function sendToSheets(line) {
-  line = line.trim();
-  const parts = line.split(',');
-
-  if (parts.length < 4) return;
-
-  fetch("TON_URL_EXEC_ICI", {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      timeMs: parts[0],
-      timeSec: parts[1],
-      rawValue: parts[2],
-      angleDeg: parts[3]
-    })
-  });
-}
 </script>
+
+</body>
+</html>
