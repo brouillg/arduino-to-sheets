@@ -1,26 +1,87 @@
-function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("Data");
-  if (!sheet) {
-    sheet = ss.insertSheet("Data");
-  }
-  return sheet;
-}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Arduino → Google Sheets</title>
+</head>
+<body>
+  <h2>Connexion Arduino Mega → Google Sheets</h2>
+  <button id="connectBtn">Connecter l'Arduino</button>
+  <p id="status">Statut : En attente...</p>
+  <pre id="log" style="max-height:300px; overflow:auto; border:1px solid #ccc;"></pre>
 
-// Appelé depuis la page web pour ajouter une ligne
-function appendRowFromBrowser(timeMs, timeSec, rawValue, angleDeg) {
-  const sheet = getSheet();
-  sheet.appendRow([
-    new Date(),         // horodatage serveur
-    Number(timeMs),
-    Number(timeSec),
-    Number(rawValue),
-    Number(angleDeg)
-  ]);
-}
+  <script>
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const connectBtn = document.getElementById('connectBtn');
 
-// Sert la page web avec le bouton "Connecter"
-function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Acquisition Arduino → Sheets');
-}
+    let port;
+    let reader;
+    let textDecoder;
+    let inputDone;
+    let buffer = '';
+
+    connectBtn.addEventListener('click', async () => {
+      try {
+        // Demande à l'utilisateur de choisir un port série
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        statusEl.textContent = 'Statut : connecté. Lecture en cours...';
+
+        textDecoder = new TextDecoderStream();
+        inputDone = port.readable.pipeTo(textDecoder.writable);
+        const inputStream = textDecoder.readable;
+        reader = inputStream.getReader();
+
+        readLoop();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Erreur : ' + err;
+      }
+    });
+
+    async function readLoop() {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            buffer += value;
+            let lines = buffer.split('\n');
+            buffer = lines.pop(); // on garde la ligne incomplète
+
+            for (let line of lines) {
+              line = line.trim();
+              if (!line) continue;
+
+              // On logge pour debug
+              logEl.textContent += line + '\n';
+
+              // On saute la ligne d'en-tête
+              if (line.startsWith('time_ms')) continue;
+
+              const parts = line.split(',');
+              if (parts.length < 4) continue;
+
+              const timeMs   = parseFloat(parts[0]);
+              const timeSec  = parseFloat(parts[1]);
+              const rawValue = parseFloat(parts[2]);
+              const angleDeg = parseFloat(parts[3]);
+
+              // Appel du script serveur pour écrire dans la feuille
+              google.script.run.appendRowFromBrowser(timeMs, timeSec, rawValue, angleDeg);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Erreur de lecture : ' + err;
+      } finally {
+        if (reader) {
+          reader.releaseLock();
+        }
+      }
+    }
+  </script>
+</body>
+</html>
